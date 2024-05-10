@@ -37,7 +37,7 @@ track_mask = pygame.mask.from_surface(track_image)
 resolution = 8
 
 class Car:
-    def __init__(self, x, y, width, height):
+    def __init__(self, x, y, width, height, model):
         self.original_width = width
         self.original_height = height
         self.width = width // 2  # Make the car smaller
@@ -52,6 +52,7 @@ class Car:
         self.rotation_speed = 0.6
         self.odometer = 0
         self.recording = []
+        self.model = model
 
     def update(self, track_mask):
         # Calculate new position based on the speed and angle
@@ -171,13 +172,12 @@ class MLP(nn.Module):
             x = F.gelu(hidden(x))  # applying each hidden layer
         return self.fc2(x)
 
-model = MLP(9, 4, 64, 3)
 #model = torch.load("model.pt")
 
 
 # Create a car instance at the center of the screen
 n_cars = 3
-cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20, 60, 30) for _ in range(n_cars)]
+cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20, 60, 30, model=MLP(9, 4, 64, 3)) for _ in range(n_cars)]
 
 #import multiprocessing as mp
 
@@ -188,7 +188,7 @@ running = True
 
 # Game loop
 for j in range(100):
-    for i in range(300):
+    for i in range(500):
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -198,7 +198,7 @@ for j in range(100):
         screen.blit(track_image, (-lastx, -lasty))
             
         for car in cars:
-            output = car.get_model_output(model)
+            output = car.get_model_output(car.model)
             keys = pygame.key.get_pressed()
 
 
@@ -236,35 +236,43 @@ for j in range(100):
             running = False
             break
 
-    for car in cars:
-        recording = torch.stack(car.recording, axis=0)
+    bestOdometer = -10
+    for n, car in enumerate(cars):
+        if car.odometer > bestOdometer:
+            bestOdometer = car.odometer
+            bestmodel = car.model
+            bestn = n
+    print(n)
+    recording = torch.stack(cars[bestn].recording, axis=0)
+    car = cars[bestn]
 
-        # tune model
-        past_interaction = 10
-        radar = recording[:-past_interaction, :9]
-        buttons = (recording[:-past_interaction, 10:] + recording[past_interaction:, 10:])/2
-        speed = recording[past_interaction:, 9]
+    # tune model
+    past_interaction = 10
+    radar = recording[:-past_interaction, :9]
+    buttons = (recording[:-past_interaction, 10:] + recording[past_interaction:, 10:])/2
+    speed = recording[past_interaction:, 9]
 
-        # make labels so that buttons that lead to high speed 20 steps after are rewarded
-        speedthresh = 1.5
-        buttons[speed < speedthresh] = (buttons[speed < speedthresh] < 0.5) + 0.0
-        buttons = buttons[speed < speedthresh]
-        radar = radar[speed < speedthresh]
+    # make labels so that buttons that lead to high speed 20 steps after are rewarded
+    speedthresh = 1.5
+    buttons[speed < speedthresh] = (buttons[speed < speedthresh] < 0.5) + 0.0
+    buttons = buttons[speed < speedthresh]
+    radar = radar[speed < speedthresh]
 
-        # train model   
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-        from tqdm import tqdm
-        for epoch in (range(5)):
-            optimizer.zero_grad()
-            #output = model(torch.cat([radar, torch.zeros(radar.shape[0], 1)], axis=1))
-            output = model(radar)
-            loss = F.mse_loss(output, buttons)
-            loss.backward()
-            optimizer.step()
-            # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
-        
-        print(f"{car.odometer:2f} - {speed.mean():2f} -{car}")
+    # train model   
+    optimizer = torch.optim.SGD(bestmodel.parameters(), lr=0.0003)
+    from tqdm import tqdm
+    for epoch in (range(5)):
+        optimizer.zero_grad()
+        #output = model(torch.cat([radar, torch.zeros(radar.shape[0], 1)], axis=1))
+        output = bestmodel(radar)
+        loss = F.mse_loss(output, buttons)
+        loss.backward()
+        optimizer.step()
+        # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
+    
+    print(f"{car.odometer:2f} - {speed.mean():2f} -{car}")
 
-    cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20 + i * 10, 60, 30) for i in range(n_cars)]
+
+    cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20 + i * 10, 60, 30, car.model) for i in range(n_cars)]
     if running == False: break
 pygame.quit()
