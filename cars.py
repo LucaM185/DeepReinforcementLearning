@@ -3,6 +3,8 @@ import pygame
 import math
 import sys
 
+setup = [9, 3, 16, 1]
+
 # Initialize Pygame
 pygame.init()
 
@@ -46,13 +48,14 @@ class Car:
         self.y = y
         self.angle = 0
         self.speed = 0
-        self.max_speed = 2
+        self.max_speed = 3
         self.acceleration = 0.2
         self.deceleration = 0.1
         self.rotation_speed = 0.6
         self.odometer = 0
         self.recording = []
         self.model = model
+        self.crashed = False
 
     def update(self, track_mask):
         # Calculate new position based on the speed and angle
@@ -60,13 +63,14 @@ class Car:
         new_y = self.y + math.sin(math.radians(self.angle)) * self.speed
 
         # Check if the new position is on the track
-        if self.is_position_on_track(new_x, new_y, track_mask):
+        if self.is_position_on_track(new_x, new_y, track_mask) and not self.crashed:
             # Update the position
             self.x = new_x
             self.y = new_y
         else:
             # Stop the car if it's not on the track
             self.speed = 0
+            self.crashed = True
 
         # Decelerate the car
         if self.speed > 0:
@@ -117,6 +121,8 @@ class Car:
 
     def get_radar_readings(self, track_mask, angle_range=45, resolution=8):
         readings = []
+        if self.crashed:
+            return [0] * (resolution+1)
         for i in np.arange(-angle_range, angle_range + 1, angle_range*2 / resolution):
             angle = self.angle + i
             distance = self.cast_ray(track_mask, angle)
@@ -143,7 +149,7 @@ class Car:
 
         # Get the model output
         output = mymodel(readings)
-        output = output.squeeze(0).detach().numpy()
+        output = output.squeeze(0).detach()
 
         return output
 
@@ -154,6 +160,7 @@ class Car:
             end_x = self.x - offset_x + math.cos(math.radians(angle)) * reading
             end_y = self.y - offset_y + math.sin(math.radians(angle)) * reading
             pygame.draw.line(surface, (255, 0, 0), (self.x - offset_x, self.y - offset_y), (end_x, end_y), 1)
+
 
 import torch
 import torch.nn as nn
@@ -170,25 +177,58 @@ class MLP(nn.Module):
         x = F.gelu(self.fc1(inputs))
         for hidden in self.fcx:    # iterating over hidden layers
             x = F.gelu(hidden(x))  # applying each hidden layer
-        return self.fc2(x)
+        return torch.softmax(self.fc2(x), axis=-1)
+
+    def train(self, past_interaction = 10, epochs = 50, recording=None): 
+        past_interaction *= 1
+        bestmodel = self
+        # tune model
+        radar = recording[:-past_interaction, :9]
+        buttons = (recording[:-past_interaction, 10:] + recording[past_interaction:, 10:])/2
+        speed = recording[past_interaction:, 9]
+
+        # make labels so that buttons that lead to high speed 20 steps after are rewarded
+        speedthresh = 1.5
+        buttons[speed < speedthresh] = (buttons[speed < speedthresh] < 0.5) + 0.0
+        #buttons = buttons[speed < speedthresh]
+        #radar = radar[speed < speedthresh]
+        buttons[radar.sum(-1) == 0] *= 0
+        buttons[radar.sum(-1) == 0] += torch.tensor([0, 1, 0])
+
+        # train model   
+        optimizer = torch.optim.Adam(bestmodel.parameters(), lr=0.003)
+        from tqdm import tqdm
+        for epoch in (range(epochs)):
+            optimizer.zero_grad()
+            #output = model(torch.cat([radar, torch.zeros(radar.shape[0], 1)], axis=1))
+            output = bestmodel(radar)
+            loss = F.mse_loss(output, buttons)
+            loss.backward()
+            optimizer.step()
+            # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
+        
+        state = bestmodel.state_dict()
+        newmodel = MLP(*setup)
+        newmodel.load_state_dict(state)
+        return newmodel
 
 #model = torch.load("model.pt")
 
 
 # Create a car instance at the center of the screen
-n_cars = 3
-cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20, 60, 30, model=MLP(9, 4, 64, 3)) for _ in range(n_cars)]
+n_cars = 13*4
+cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*setup)) for i in range(n_cars)]
 
 #import multiprocessing as mp
 
 lastx, lasty = 0, 0
 
-display = True
+display = False
 running = True
 
 # Game loop
 for j in range(100):
-    for i in range(500):
+    for i in range(600 + j*100):
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -202,14 +242,12 @@ for j in range(100):
             keys = pygame.key.get_pressed()
 
 
-            if True:
-                if output[0] > 0.03:
-                    car.accelerate()
-                if output[1] > 0.3:  # steer 
-                    if output[2] > output[3]: # left
-                        car.steer_left()
-                    if output[3] > output[2]: # right
-                        car.steer_right()
+            car.accelerate()
+            output += torch.rand(3) * 0.1
+            if output.argmax(axis=-1) == 0:
+                car.steer_left()
+            elif output.argmax(axis=-1) == 2:
+                car.steer_right()
 
 
             # Update the car
@@ -219,13 +257,13 @@ for j in range(100):
             offset_x = car.x - SCREEN_WIDTH // 2
             offset_y = car.y - SCREEN_HEIGHT // 2
 
+            car.draw(screen, lastx, lasty)
             if display:
-                car.draw(screen, lastx, lasty)
                 car.visualize(track_mask, screen, lastx, lasty, resolution=resolution)
 
             radar = car.get_radar_readings(track_mask, angle_range=45, resolution=resolution)
             speed = car.speed
-            buttons = torch.tensor([output[0] > 0.1, output[1] > 0.3, output[2] > output[3], output[2] < output[3]], dtype=torch.float32)
+            buttons = F.one_hot(output.argmax(), 3).float()
             car.recording.append(torch.cat([torch.tensor(radar), torch.tensor([speed]), buttons]))
 
         lastx, lasty = offset_x, offset_y
@@ -235,44 +273,33 @@ for j in range(100):
         if keys[pygame.K_q]:
             running = False
             break
+        
+        if [car.crashed for car in cars].count(True) == n_cars:
+            break
 
     bestOdometer = -10
     for n, car in enumerate(cars):
         if car.odometer > bestOdometer:
-            bestOdometer = car.odometer
-            bestmodel = car.model
-            bestn = n
-    print(n)
-    recording = torch.stack(cars[bestn].recording, axis=0)
-    car = cars[bestn]
-
-    # tune model
-    past_interaction = 10
-    radar = recording[:-past_interaction, :9]
-    buttons = (recording[:-past_interaction, 10:] + recording[past_interaction:, 10:])/2
-    speed = recording[past_interaction:, 9]
-
-    # make labels so that buttons that lead to high speed 20 steps after are rewarded
-    speedthresh = 1.5
-    buttons[speed < speedthresh] = (buttons[speed < speedthresh] < 0.5) + 0.0
-    buttons = buttons[speed < speedthresh]
-    radar = radar[speed < speedthresh]
-
-    # train model   
-    optimizer = torch.optim.SGD(bestmodel.parameters(), lr=0.0003)
-    from tqdm import tqdm
-    for epoch in (range(5)):
-        optimizer.zero_grad()
-        #output = model(torch.cat([radar, torch.zeros(radar.shape[0], 1)], axis=1))
-        output = bestmodel(radar)
-        loss = F.mse_loss(output, buttons)
-        loss.backward()
-        optimizer.step()
-        # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
-    
-    print(f"{car.odometer:2f} - {speed.mean():2f} -{car}")
+            if torch.rand(1) > 0.0: 
+                bestOdometer = car.odometer
+                bestmodel = car.model
+                bestn = n
 
 
-    cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20 + i * 10, 60, 30, car.model) for i in range(n_cars)]
+    print(f"{cars[bestn].odometer:2f} - {speed} ")
+
+    past = []
+    for past_inter in [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45]:
+        for epochs in [10, 30, 50, 100]:
+            past.append((past_inter, epochs))
+    past = past[::-1]
+
+    for k in range(0):
+        for i in range(n_cars):
+            recording = torch.stack(cars[i].recording, axis=0)
+            bestmodel = bestmodel.train(*[10, 3], recording)
+
+
+    cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20 + torch.randint(0, 15, (1,)).item()*0, 60, 30, bestmodel.train(*past[i], torch.stack(cars[bestn].recording, axis=0)) if torch.rand(1).item() > -0.1 else bestmodel.train(*past[i], torch.stack(cars[i].recording, axis=0)))  for i in range(n_cars)]
     if running == False: break
 pygame.quit()
