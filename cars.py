@@ -47,7 +47,7 @@ class Car:
         self.x = x
         self.y = y
         self.angle = 0
-        self.speed = 0
+        self.speed = 2
         self.max_speed = 3
         self.acceleration = 0.2
         self.deceleration = 0.1
@@ -196,7 +196,7 @@ class MLP(nn.Module):
         buttons[radar.sum(-1) == 0] += torch.tensor([0, 1, 0])
 
         # train model   
-        optimizer = torch.optim.Adam(bestmodel.parameters(), lr=0.003)
+        optimizer = torch.optim.SGD(bestmodel.parameters(), lr=0.003)
         from tqdm import tqdm
         for epoch in (range(epochs)):
             optimizer.zero_grad()
@@ -216,7 +216,7 @@ class MLP(nn.Module):
 
 
 # Create a car instance at the center of the screen
-n_cars = 13*4
+n_cars = 18*2
 cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*setup)) for i in range(n_cars)]
 
 #import multiprocessing as mp
@@ -254,8 +254,9 @@ for j in range(100):
             car.update(track_mask)
 
             # Camera offset
-            offset_x = car.x - SCREEN_WIDTH // 2
-            offset_y = car.y - SCREEN_HEIGHT // 2
+            if not car.crashed:
+                offset_x = car.x - SCREEN_WIDTH // 2
+                offset_y = car.y - SCREEN_HEIGHT // 2
 
             car.draw(screen, lastx, lasty)
             if display:
@@ -280,7 +281,7 @@ for j in range(100):
     bestOdometer = -10
     for n, car in enumerate(cars):
         if car.odometer > bestOdometer:
-            if torch.rand(1) > 0.0: 
+            if torch.rand(1) > -1.0: 
                 bestOdometer = car.odometer
                 bestmodel = car.model
                 bestn = n
@@ -289,8 +290,8 @@ for j in range(100):
     print(f"{cars[bestn].odometer:2f} - {speed} ")
 
     past = []
-    for past_inter in [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45]:
-        for epochs in [10, 30, 50, 100]:
+    for past_inter in [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 70, 90, 120, 150]:
+        for epochs in [1, 5]:
             past.append((past_inter, epochs))
     past = past[::-1]
 
