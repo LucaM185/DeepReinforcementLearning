@@ -1,31 +1,18 @@
-import math
 import numpy as np
 import pygame
+import math
+import os
 import torch
 import sys
+
 
 # Colors
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
 
-
-# Load and scale the track image
-try:
-    track_image = pygame.image.load("monza.png").convert_alpha()
-    track_image = pygame.transform.scale(track_image, (track_image.get_width() * 2, track_image.get_height() * 2))
-    track_rect = track_image.get_rect()
-except pygame.error:
-    print("Failed to load the image 'monza.png'. Please make sure the file exists in the same directory as this script.")
-    pygame.quit()
-    sys.exit()
-
-track_mask = pygame.mask.from_surface(track_image)
-
-# radar parameters
-resolution = 8
-
 class Car:
-    def __init__(self, x, y, width, height, model):
+    def __init__(self, x, y, width, height, model, track_mask):
+        self.track_mask = track_mask
         self.original_width = width
         self.original_height = height
         self.width = width // 2  # Make the car smaller
@@ -37,7 +24,7 @@ class Car:
         self.max_speed = 3
         self.acceleration = 0.2
         self.deceleration = 0.1
-        self.rotation_speed = 0.6
+        self.rotation_speed = 1.0
         self.odometer = 0
         self.recording = []
         self.model = model
@@ -127,9 +114,9 @@ class Car:
                 break
         return distance
     
-    def get_model_output(self, mymodel):
+    def get_model_output(self, mymodel, resolution):
         # Get the radar readings
-        readings = self.get_radar_readings(track_mask)
+        readings = self.get_radar_readings(self.track_mask, resolution=resolution)
         readings = torch.tensor(readings).float()
         readings = readings.unsqueeze(0)
 
