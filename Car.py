@@ -103,14 +103,16 @@ class Car:
         x = self.x
         y = self.y
         while True:
-            x += math.cos(math.radians(angle))
-            y += math.sin(math.radians(angle))
-            distance += 10
+            stepsize = 10
+            x += math.cos(math.radians(angle))*stepsize
+            y += math.sin(math.radians(angle))*stepsize
+            distance += stepsize
             if not self.is_position_on_track(x, y, track_mask):
+                backstepsize = 1
                 while not self.is_position_on_track(x, y, track_mask):
-                    x -= math.cos(math.radians(angle))
-                    y -= math.sin(math.radians(angle))
-                    distance -= 1
+                    x -= math.cos(math.radians(angle))*backstepsize
+                    y -= math.sin(math.radians(angle))*backstepsize
+                    distance -= backstepsize
                 break
         return distance
     

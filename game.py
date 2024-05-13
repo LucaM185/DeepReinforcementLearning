@@ -32,7 +32,7 @@ cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model
 
 lastx, lasty = 0, 0
 
-display_radar = False
+display_radar = True
 display = True
 running = True
 
