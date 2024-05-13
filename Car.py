@@ -80,15 +80,11 @@ class Car:
         self.angle += self.rotation_speed
 
     def draw(self, surface, offset_x, offset_y):
-        # Create a new surface with car dimensions
         car_surface = pygame.Surface((self.original_width, self.original_height), pygame.SRCALPHA)
-        # Fill the surface with the car color
         car_surface.fill(RED)
-        # Scale the car down
         car_surface = pygame.transform.scale(car_surface, (self.width, self.height))
-        # Rotate the car surface to match the current angle
         rotated_car = pygame.transform.rotate(car_surface, -self.angle)
-        # Get the new rect and blit to the screen at the center of the car
+
         rect = rotated_car.get_rect(center=(self.x - offset_x, self.y - offset_y))
         surface.blit(rotated_car, rect.topleft)
 
@@ -109,8 +105,12 @@ class Car:
         while True:
             x += math.cos(math.radians(angle))
             y += math.sin(math.radians(angle))
-            distance += 1
+            distance += 10
             if not self.is_position_on_track(x, y, track_mask):
+                while not self.is_position_on_track(x, y, track_mask):
+                    x -= math.cos(math.radians(angle))
+                    y -= math.sin(math.radians(angle))
+                    distance -= 1
                 break
         return distance
     

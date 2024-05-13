@@ -7,6 +7,7 @@ import sys
 from Track import * 
 from Car import Car
 from Model import MLP
+import multiprocessing
 
 
 setup = [13, 3, 16, 1]
@@ -35,6 +36,12 @@ display_radar = False
 display = True
 running = True
 
+def process_item(car: Car, resolution: int):
+    # Run the slow line for each car
+    output = car.get_model_output(car.model, resolution)
+    return output
+
+
 # Game loop
 for j in range(100):
     for i in range(600 + j*100):
@@ -47,10 +54,20 @@ for j in range(100):
             screen.fill(WHITE)
             screen.blit(track_image, (-lastx, -lasty))
             
-        for car in cars:
-            output = car.get_model_output(car.model, resolution)
-            keys = pygame.key.get_pressed()
+        keys = pygame.key.get_pressed()
+        
+        
+        # num_processes = multiprocessing.cpu_count()
 
+        # # Create a pool of processes
+        # pool = multiprocessing.Pool(processes=num_processes)
+
+        # Map the function to process each car to the pool of processes
+
+        outputs = [process_item(car, resolution) for car in cars]
+            
+        for car, output in zip(cars, outputs):
+            
 
             car.accelerate()
             #output += torch.rand(3) * 0.1
