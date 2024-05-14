@@ -18,18 +18,31 @@ class Car:
         self.original_height = height
         self.width = width // 2  # Make the car smaller
         self.height = height // 2
+        self.original_x = x
+        self.original_y = y
         self.x = x
         self.y = y
         self.angle = 0
         self.speed = 2
-        self.max_speed = 3
+        self.max_speed = 2
         self.acceleration = 0.2
         self.deceleration = 0.1
         self.rotation_speed = 1.0
         self.odometer = 0
-        self.recording = []
+        self.radar_recording = []
+        self.steer_recording = [] 
         self.model = model
         self.crashed = False
+
+    def reset_position(self):
+        self.x = self.original_x
+        self.y = self.original_y
+        self.angle = 0
+        self.speed = 2
+        self.odometer = 0
+        self.crashed = False
+        self.radar_recording = []
+        self.steer_recording = []
 
     def update(self, track_mask):
         # Calculate new position based on the speed and angle
@@ -76,9 +89,14 @@ class Car:
 
     def steer_left(self):
         self.angle -= self.rotation_speed
+        if not self.crashed: self.steer_recording.append(0)
+
+    def go_straight(self):
+        if not self.crashed: self.steer_recording.append(1)
 
     def steer_right(self):
         self.angle += self.rotation_speed
+        if not self.crashed: self.steer_recording.append(2)
 
     def draw(self, surface, offset_x, offset_y):
         car_surface = pygame.Surface((self.original_width, self.original_height), pygame.SRCALPHA)
@@ -89,7 +107,7 @@ class Car:
         rect = rotated_car.get_rect(center=(self.x - offset_x, self.y - offset_y))
         surface.blit(rotated_car, rect.topleft)
 
-    def get_radar_readings(self, track_mask, angle_range=45, resolution=8):
+    def get_radar_readings(self, track_mask, angle_range=45, resolution=8, save=False):
         readings = []
         if self.crashed:
             return [0] * (resolution+1)
@@ -97,6 +115,7 @@ class Car:
             angle = self.angle + i
             distance = self.cast_ray(track_mask, angle)
             readings.append(distance)
+        if save: self.radar_recording.append(readings)
         return readings
 
     def cast_ray(self, track_mask, angle):
@@ -119,7 +138,7 @@ class Car:
     
     def get_model_output(self, mymodel: MLP, resolution: int):
         # Get the radar readings
-        readings = self.get_radar_readings(self.track_mask, resolution=resolution)
+        readings = self.get_radar_readings(self.track_mask, resolution=resolution, save=True)
         readings = torch.tensor(readings).float()
         readings = readings.unsqueeze(0)
 
@@ -136,3 +155,11 @@ class Car:
             end_x = self.x - offset_x + math.cos(math.radians(angle)) * reading
             end_y = self.y - offset_y + math.sin(math.radians(angle)) * reading
             pygame.draw.line(surface, (255, 0, 0), (self.x - offset_x, self.y - offset_y), (end_x, end_y), 1)
+
+    @property
+    def steering_tensor(self):
+        return torch.nn.functional.one_hot(torch.tensor(self.steer_recording).long(), 3).float()
+    
+    @property
+    def radar_tensor(self):
+        return torch.tensor(self.radar_recording).float()

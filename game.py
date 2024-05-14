@@ -1,13 +1,9 @@
-import numpy as np
 import pygame
-import math
-import os
 import torch
-import sys
+
 from Track import * 
 from Car import Car
 from Model import MLP
-import multiprocessing
 
 
 pygame.init()
@@ -33,10 +29,11 @@ lastx, lasty = 0, 0
 display_radar = True
 display = True
 running = True
+manual_control = True
 
 # Game loop
 for j in range(100):
-    for i in range(600 + j*100):
+    for i in range(1600 + j*500):
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -48,13 +45,23 @@ for j in range(100):
         
         outputs = [car.get_model_output(car.model, resolution) for car in cars]
             
-        for car, output in zip(cars, outputs):
+        for n, (car, output) in enumerate(zip(cars, outputs)):
             car.accelerate()
 
-            if output.argmax(axis=-1).item() == 0:
-                car.steer_left()
-            elif output.argmax(axis=-1).item() == 2:
-                car.steer_right()
+            if manual_control and n == n_cars-1:
+                if keys[pygame.K_LEFT]:
+                    car.steer_left()
+                if keys[pygame.K_RIGHT]:
+                    car.steer_right()
+                else:
+                    car.go_straight()
+            else:
+                if output.argmax(axis=-1).item() == 0:
+                    car.steer_left()
+                elif output.argmax(axis=-1).item() == 2:
+                    car.steer_right()
+                else:
+                    car.go_straight()
 
             car.update(track_mask)
 
@@ -66,10 +73,8 @@ for j in range(100):
             if display: car.draw(screen, lastx, lasty)
             if display_radar: car.visualize(track_mask, screen, lastx, lasty, resolution=resolution)
 
-            radar = car.get_radar_readings(track_mask, angle_range=45, resolution=resolution)
-            speed = car.speed
-            buttons = torch.nn.functional.one_hot(output.argmax(), 3).float()
-            car.recording.append(torch.cat([torch.tensor(radar), torch.tensor([speed]), buttons]))
+            # radar = car.get_radar_readings(track_mask, angle_range=45, resolution=resolution)
+            # speed = car.speed
 
         if display:
             font = pygame.font.Font(None, 36)
@@ -90,16 +95,16 @@ for j in range(100):
     bestOdometer = -10
     for n, car in enumerate(cars):
         if car.odometer > bestOdometer:
-            if torch.rand(1) > -1.0: 
-                bestOdometer = car.odometer
-                bestmodel = car.model
-                bestn = n
+            bestOdometer = car.odometer
+            bestmodel = car.model
+            bestn = n
 
-
-    print(f"{cars[bestn].odometer:2f} - {speed} ")
+    print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
-    cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + 20, 60, 30, bestmodel.train(past[i].item(), 10, torch.stack(cars[i].recording, axis=0)), track_mask=track_mask)  for i in range(n_cars)]
+
+    for n, car in enumerate(cars): car.model = bestmodel.train(past[n], car.radar_tensor, car.steering_tensor)
+    for car in cars: car.reset_position()
     if running == False: break
 
 pygame.quit()
