@@ -4,6 +4,7 @@ import math
 import os
 import torch
 import sys
+from Model import MLP
 
 
 # Colors
@@ -116,7 +117,7 @@ class Car:
                 break
         return distance
     
-    def get_model_output(self, mymodel, resolution):
+    def get_model_output(self, mymodel: MLP, resolution: int):
         # Get the radar readings
         readings = self.get_radar_readings(self.track_mask, resolution=resolution)
         readings = torch.tensor(readings).float()

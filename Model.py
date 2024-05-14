@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-setup = [13, 3, 16, 1]
 
 class MLP(nn.Module):
+    setup = [19, 3, 16, 2]
+    
     def __init__(self, in_size, out_size, hidden_size, n_layers):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
@@ -22,9 +23,7 @@ class MLP(nn.Module):
 
         # make labels so that buttons that lead to high speed 20 steps after are rewarded
         buttons = recording[:, -3:]
-        radar = recording[:, :setup[0]]
-        #speedthresh = 1.5
-        #buttons[speed < speedthresh] = (buttons[speed < speedthresh] < 0.5) + 0.0
+        radar = recording[:, :MLP.setup[0]]
 
         crashed_timestamp = radar.argmin(-1) if (radar[radar.argmin(-1)].sum() == 0) else -1 
         context = 250
@@ -38,7 +37,7 @@ class MLP(nn.Module):
         from tqdm import tqdm
         for epoch in (range(epochs)):
             optimizer.zero_grad()
-            #output = model(torch.cat([radar, torch.zeros(radar.shape[0], 1)], axis=1))
+
             output = bestmodel(radar)
             loss = F.mse_loss(output, buttons)
             loss.backward()
@@ -46,6 +45,6 @@ class MLP(nn.Module):
             # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
         
         state = bestmodel.state_dict()
-        newmodel = MLP(*setup)
+        newmodel = MLP(*MLP.setup)
         newmodel.load_state_dict(state)
         return newmodel
