@@ -5,17 +5,24 @@ import torch.nn.functional as F
 class MLP(nn.Module):
     setup = [19, 3, 16, 2]
     
-    def __init__(self, in_size, out_size, hidden_size, n_layers):
+    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.0003):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
         self.fc2 = nn.Linear(hidden_size, out_size)
+        self.lr = lr
     
     def forward(self, inputs):
         x = F.gelu(self.fc1(inputs))
         for hidden in self.fcx: # iterating over hidden layers
             x = F.gelu(hidden(x))  # applying each hidden layer
         return torch.softmax(self.fc2(x), axis=-1)
+
+    def get_model_copy(self):
+        state = self.state_dict()
+        newmodel = MLP(*MLP.setup, self.lr*0.8)
+        newmodel.load_state_dict(state)
+        return newmodel
 
     def train(self, past_interaction, enviroment, actions): 
         past_interaction *= 1
@@ -27,10 +34,13 @@ class MLP(nn.Module):
         # context = 1000
         # buttons = buttons[crashed_timestamp-context:crashed_timestamp]
         # radar = radar[crashed_timestamp-context:crashed_timestamp]
-        buttons[:-past_interaction] = 1-buttons[:-past_interaction]
+        buttons[-past_interaction:] = 1-buttons[-past_interaction:]
+        buttons = buttons[-past_interaction:]
+        radar = radar[-past_interaction:]
+        # print(buttons)
 
         # train model   
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.003)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         from tqdm import tqdm
         for epoch in (range(10)):
             optimizer.zero_grad()
@@ -42,6 +52,6 @@ class MLP(nn.Module):
             # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
         
         state = self.state_dict()
-        newmodel = MLP(*MLP.setup)
+        newmodel = MLP(*MLP.setup, self.lr)
         newmodel.load_state_dict(state)
         return newmodel

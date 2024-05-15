@@ -5,6 +5,7 @@ from Track import *
 from Car import Car
 from Model import MLP
 
+torch.manual_seed(1)
 
 pygame.init()
 
@@ -13,7 +14,7 @@ SCREEN_HEIGHT = 600
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
 
-track_image, track_mask = get_track_mask(r"C:\Users\lucam\Desktop\VScode\Cars\monza.png")
+track_image, track_mask = get_track_mask(r"monza.png")
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Car Steering on Track with Camera')
@@ -21,7 +22,7 @@ clock = pygame.time.Clock()
 
 resolution = 18
 
-n_cars = 18
+n_cars = 1
 cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*MLP.setup), track_mask=track_mask) for i in range(n_cars)]
 
 lastx, lasty = 0, 0
@@ -29,11 +30,14 @@ lastx, lasty = 0, 0
 display_radar = True
 display = True
 running = True
-manual_control = True
+manual_control = False
+
+backupmodel = cars[0].model
+backupodometer = 0
 
 # Game loop
 for j in range(100):
-    for i in range(1600 + j*500):
+    while True:
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -83,7 +87,7 @@ for j in range(100):
 
         lastx, lasty = offset_x, offset_y
         pygame.display.flip()
-        clock.tick(1000)
+        clock.tick(2000)
     
         if keys[pygame.K_q]:
             running = False
@@ -99,12 +103,22 @@ for j in range(100):
             bestmodel = car.model
             bestn = n
 
-    print(f"{cars[bestn].odometer:2f}")
+    if bestOdometer > backupodometer:
+        backupmodel = cars[bestn].model.get_model_copy()
+        backupodometer = bestOdometer
+        print(f"Backup model updated, odo {bestOdometer:.2f}, lr {backupmodel.lr:.6f}")
+    else:
+        print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
+    past = [100]
 
     for n, car in enumerate(cars): car.model = bestmodel.train(past[n], car.radar_tensor, car.steering_tensor)
     for car in cars: car.reset_position()
     if running == False: break
+
+    if bestOdometer < backupodometer and torch.randint(0, 10, (1,)) > 7: 
+        cars[bestn].model = backupmodel
+        print(f"Backup model loaded, lr {backupmodel.lr:.6f}")
 
 pygame.quit()
