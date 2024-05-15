@@ -24,7 +24,7 @@ class MLP(nn.Module):
         newmodel.load_state_dict(state)
         return newmodel
 
-    def train(self, past_interaction, enviroment, actions): 
+    def train(self, enviroment, actions, past_interaction=50): 
         past_interaction *= 1
 
         buttons = actions
@@ -35,8 +35,8 @@ class MLP(nn.Module):
         # buttons = buttons[crashed_timestamp-context:crashed_timestamp]
         # radar = radar[crashed_timestamp-context:crashed_timestamp]
         buttons[-past_interaction:] = 1-buttons[-past_interaction:]
-        buttons = buttons[-past_interaction:]
-        radar = radar[-past_interaction:]
+        buttons = buttons[-2*past_interaction:]
+        radar = radar[-2*past_interaction:]
         # print(buttons)
 
         # train model   

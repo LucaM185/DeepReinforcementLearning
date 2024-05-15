@@ -113,7 +113,7 @@ for j in range(100):
     past = torch.randint(1, 100, (n_cars,))
     past = [100]
 
-    for n, car in enumerate(cars): car.model = bestmodel.train(past[n], car.radar_tensor, car.steering_tensor)
+    for n, car in enumerate(cars): car.model = bestmodel.train(car.radar_tensor, car.steering_tensor, past[n])
     for car in cars: car.reset_position()
     if running == False: break
 
