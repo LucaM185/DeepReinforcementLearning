@@ -4,14 +4,15 @@ import torch
 from Track import * 
 from Car import Car
 from Model import MLP
+from Dataset import MyDataset
 
-torch.manual_seed(1)
+torch.manual_seed(0)
 
 pygame.init()
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-WHITE = (255, 255, 255)
+WHITE = (0, 0, 0)
 RED = (255, 0, 0)
 
 track_image, track_mask = get_track_mask(r"monza.png")
@@ -23,7 +24,8 @@ clock = pygame.time.Clock()
 resolution = 18
 
 n_cars = 1
-cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*MLP.setup), track_mask=track_mask) for i in range(n_cars)]
+cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*MLP.setup, lr=0.003), track_mask=track_mask) for i in range(n_cars)]
+dataset = MyDataset()
 
 lastx, lasty = 0, 0
 
@@ -82,7 +84,7 @@ for j in range(100):
 
         if display:
             font = pygame.font.Font(None, 36)
-            text = font.render(f"Output: [{output_backup[0]:.2f}, {output_backup[1]:.2f}, {output_backup[2]:.2f}]", True, (0, 0, 0))
+            text = font.render(f"Output: [{output_backup[0]:.2f}, {output_backup[1]:.2f}, {output_backup[2]:.2f}]", True, (0, 255, 0))
             screen.blit(text, (10, 10))
 
         lastx, lasty = offset_x, offset_y
@@ -111,14 +113,15 @@ for j in range(100):
         print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
-    past = [100]
+    past = [50]
 
     for n, car in enumerate(cars): car.model = bestmodel.train(car.radar_tensor, car.steering_tensor, past[n])
     for car in cars: car.reset_position()
     if running == False: break
 
     if bestOdometer < backupodometer and torch.randint(0, 10, (1,)) > 7: 
-        cars[bestn].model = backupmodel
+        cars[bestn].model = backupmodel.get_model_copy()
+        backupmodel.lr *= 0.8
         print(f"Backup model loaded, lr {backupmodel.lr:.6f}")
 
 pygame.quit()

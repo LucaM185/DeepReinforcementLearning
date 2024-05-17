@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [19, 3, 16, 2]
+    setup = [19, 3, 32, 2]
     
-    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.0003):
+    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.003):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
@@ -37,10 +37,11 @@ class MLP(nn.Module):
         buttons[-past_interaction:] = 1-buttons[-past_interaction:]
         buttons = buttons[-2*past_interaction:]
         radar = radar[-2*past_interaction:]
+
         # print(buttons)
 
         # train model   
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.8)
         from tqdm import tqdm
         for epoch in (range(10)):
             optimizer.zero_grad()
