@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [19, 3, 32, 2]
+    setup = [19, 3, 64, 2]
     
     def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.003):
         super().__init__()
