@@ -113,13 +113,13 @@ for j in range(100):
         print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
-    past = [120]
+    past = [40]
 
     for n, car in enumerate(cars): car.model = bestmodel.train(car.radar_tensor, car.steering_tensor, past[n])
     for car in cars: car.reset_position()
     if running == False: break
 
-    if bestOdometer < backupodometer and torch.randint(0, 10, (1,)) > 7: 
+    if bestOdometer < backupodometer and torch.randint(0, 100, (1,)) > 95: 
         cars[bestn].model = backupmodel.get_model_copy()
         backupmodel.lr *= 0.8
         print(f"Backup model loaded, lr {backupmodel.lr:.6f}")
