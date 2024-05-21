@@ -6,7 +6,7 @@ from Car import Car
 from Model import MLP
 from Dataset import MyDataset
 
-torch.manual_seed(0)
+torch.manual_seed(42)
 
 pygame.init()
 
@@ -18,15 +18,16 @@ WHITE = (0, 0, 0)
 RED = (255, 0, 0)
 
 track_image, track_mask = get_track_mask(r"monza.png")
-track_image, track_mask, starting_point = make_new_track()
-starting_point = starting_point[0]*8, starting_point[1]*8
+starting_point = (120, 120)
+#track_image, track_mask, starting_point = make_new_track()
+#starting_point = starting_point[0]*8, starting_point[1]*8
 
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Car Steering on Track with Camera')
 clock = pygame.time.Clock()
 
-resolution = 18
+resolution = 24
 
 n_cars = 1
 cars = [Car(starting_point[0], + starting_point[1], 60, 30, model=MLP(*MLP.setup, lr=0.003), track_mask=track_mask) for i in range(n_cars)]

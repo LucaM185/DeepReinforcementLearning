@@ -27,7 +27,7 @@ import numpy as np
 import cv2
 
 image = np.zeros((600, 800), np.uint8)
-prev = None
+prev = (400, 300)
 mousedown = False
 starting_point = None
 
@@ -37,12 +37,16 @@ def draw(event, x, y, flags, param):
     global mousedown
     global starting_point
 
+    if starting_point is None:
+        cv2.circle(image, prev, 10, (0, 0, 0, 0), -1)
+
     if event == cv2.EVENT_LBUTTONDOWN:
         if prev == None:
             prev = (x, y)
         mousedown = True
         if starting_point == None:
             starting_point = (x, y)
+
 
     if mousedown:
         cv2.line(image, prev, (x, y), (0, 0, 0, 0), 10)

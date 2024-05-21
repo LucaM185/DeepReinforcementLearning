@@ -24,7 +24,7 @@ class Car:
         self.y = y
         self.angle = 0
         self.speed = 2
-        self.max_speed = 2
+        self.max_speed = 2.5
         self.acceleration = 0.2
         self.deceleration = 0.1
         self.rotation_speed = 1.0

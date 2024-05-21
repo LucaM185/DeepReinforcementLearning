@@ -3,19 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [19, 3, 128, 3]
+    setup = [25, 3, 128, 3]
     
     def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.001):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
         self.fc2 = nn.Linear(hidden_size, out_size)
+        self.lnorm = nn.LayerNorm(hidden_size)
         self.lr = lr
     
     def forward(self, inputs):
         x = F.gelu(self.fc1(inputs))
         for hidden in self.fcx: # iterating over hidden layers
-            x = F.gelu(hidden(x))  # applying each hidden layer
+            x = self.lnorm(F.gelu(hidden(x)))  # applying each hidden layer
         return torch.softmax(self.fc2(x), axis=-1)
 
     def get_model_copy(self):
