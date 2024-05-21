@@ -10,12 +10,17 @@ torch.manual_seed(0)
 
 pygame.init()
 
+
+
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 WHITE = (0, 0, 0)
 RED = (255, 0, 0)
 
 track_image, track_mask = get_track_mask(r"monza.png")
+track_image, track_mask, starting_point = make_new_track()
+starting_point = starting_point[0]*8, starting_point[1]*8
+
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Car Steering on Track with Camera')
@@ -24,7 +29,7 @@ clock = pygame.time.Clock()
 resolution = 18
 
 n_cars = 1
-cars = [Car(SCREEN_WIDTH // 8 + 20, SCREEN_HEIGHT // 8 + i*0 + 20, 60, 30, model=MLP(*MLP.setup, lr=0.003), track_mask=track_mask) for i in range(n_cars)]
+cars = [Car(starting_point[0], + starting_point[1], 60, 30, model=MLP(*MLP.setup, lr=0.003), track_mask=track_mask) for i in range(n_cars)]
 dataset = MyDataset()
 
 lastx, lasty = 0, 0
@@ -47,7 +52,7 @@ for j in range(100):
         keys = pygame.key.get_pressed()
 
         screen.fill(WHITE)
-        screen.blit(track_image, (-lastx, -lasty))            
+        screen.blit(track_image, (-lastx, -lasty))
         
         outputs = [car.get_model_output(car.model, resolution) for car in cars]
             
@@ -113,7 +118,7 @@ for j in range(100):
         print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
-    past = [40]
+    past = [140]
 
     for n, car in enumerate(cars): car.model = bestmodel.train(car.radar_tensor, car.steering_tensor, past[n])
     for car in cars: car.reset_position()

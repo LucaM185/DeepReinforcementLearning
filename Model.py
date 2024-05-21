@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [19, 3, 64, 2]
+    setup = [19, 3, 128, 3]
     
-    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.0001):
+    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.001):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
@@ -35,8 +35,8 @@ class MLP(nn.Module):
         # buttons = buttons[crashed_timestamp-context:crashed_timestamp]
         # radar = radar[crashed_timestamp-context:crashed_timestamp]
         buttons[-past_interaction:] = 1-buttons[-past_interaction:]
-        buttons = buttons[-past_interaction-50:]
-        radar = radar[-past_interaction-50:]
+        buttons = buttons[-past_interaction-250:]
+        radar = radar[-past_interaction-250:]
 
         # print(buttons)
 
