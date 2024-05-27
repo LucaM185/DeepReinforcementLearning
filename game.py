@@ -44,8 +44,8 @@ backupmodel = cars[0].model
 backupodometer = 0
 
 # Game loop
-for j in range(100):
-    while True:
+for j in range(1000):
+    for i in range(1000 + j * 100):
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -58,23 +58,34 @@ for j in range(100):
         outputs = [car.get_model_output(car.model, resolution) for car in cars]
             
         for n, (car, output) in enumerate(zip(cars, outputs)):
-            car.accelerate()
+            lateral, longitudinal = output[:3], output[3:] 
 
             if manual_control and n == n_cars-1:
                 if keys[pygame.K_LEFT]:
                     car.steer_left()
-                if keys[pygame.K_RIGHT]:
+                elif keys[pygame.K_RIGHT]:
                     car.steer_right()
                 else:
                     car.go_straight()
+                if keys[pygame.K_UP]:
+                    car.accelerate()
+                elif keys[pygame.K_DOWN]:
+                    car.brake()
             else:
-                if output.argmax(axis=-1).item() == 0:
+                if lateral.argmax(axis=-1).item() == 0:
                     car.steer_left()
-                elif output.argmax(axis=-1).item() == 2:
+                elif lateral.argmax(axis=-1).item() == 2:
                     car.steer_right()
                 else:
                     car.go_straight()
-
+                
+                if longitudinal.argmax(axis=-1).item() == 0:
+                    car.accelerate()
+                elif longitudinal.argmax(axis=-1).item() == 2:
+                    car.brake()
+                else:
+                    car.no_pedals()
+                
             car.update(track_mask)
 
             if not car.crashed:
@@ -87,11 +98,16 @@ for j in range(100):
 
             # radar = car.get_radar_readings(track_mask, angle_range=45, resolution=resolution)
             # speed = car.speed
+            speed = car.speed
 
         if display:
             font = pygame.font.Font(None, 36)
-            text = font.render(f"Output: [{output_backup[0]:.2f}, {output_backup[1]:.2f}, {output_backup[2]:.2f}]", True, (0, 255, 0))
-            screen.blit(text, (10, 10))
+            choicelateral = output_backup[:3].argmax(axis=-1).item()
+            choicelongitudinal = output_backup[3:].argmax(axis=-1).item()
+            mystring = f"Lat: {choicelateral} @ {output_backup[choicelateral]:.2f} \nLong {choicelongitudinal} @ {output_backup[choicelongitudinal+3]:.2f} \nSpd: {speed:.2f}"
+            for n, line in enumerate(mystring.split("\n")):
+                text = font.render(line, True, (0, 255, 0))
+                screen.blit(text, (10, 10 + n*36))
 
         lastx, lasty = offset_x, offset_y
         pygame.display.flip()
@@ -119,9 +135,9 @@ for j in range(100):
         print(f"{cars[bestn].odometer:2f}")
 
     past = torch.randint(1, 100, (n_cars,))
-    past = [140]
+    past = [240]
 
-    for n, car in enumerate(cars): car.model = bestmodel.train(car.radar_tensor, car.steering_tensor, past[n])
+    for n, car in enumerate(cars): car.model = bestmodel.train(car.environment_tensor, car.action_tensor, past[n])
     for car in cars: car.reset_position()
     if running == False: break
 

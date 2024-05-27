@@ -24,13 +24,16 @@ class Car:
         self.y = y
         self.angle = 0
         self.speed = 2
-        self.max_speed = 2.5
-        self.acceleration = 0.2
-        self.deceleration = 0.1
+        self.max_speed = 6
+        self.min_speed = 1
+        self.acceleration = 0.4
+        self.deceleration = 0.2
         self.rotation_speed = 1.0
-        self.odometer = 0
+        self._odometer = 0
         self.radar_recording = []
+        self.speed_recording = []
         self.steer_recording = [] 
+        self.longitudinal_recording = []
         self.model = model
         self.crashed = False
 
@@ -39,10 +42,12 @@ class Car:
         self.y = self.original_y
         self.angle = 0
         self.speed = 2
-        self.odometer = 0
+        self._odometer = 0
         self.crashed = False
         self.radar_recording = []
         self.steer_recording = []
+        self.speed_recording = []
+        self.longitudinal_recording = []
 
     def update(self, track_mask):
         # Calculate new position based on the speed and angle
@@ -59,17 +64,17 @@ class Car:
             self.speed = 0
             self.crashed = True
 
-        # Decelerate the car
-        if self.speed > 0:
-            self.speed -= self.deceleration
-        elif self.speed < 0:
-            self.speed += self.deceleration
+        # # Decelerate the car
+        # if self.speed > 0:
+        #     self.speed -= self.deceleration
+        # elif self.speed < 0:
+        #     self.speed += self.deceleration
 
         # Clamp the speed to the maximum speed
         self.speed = max(-self.max_speed, min(self.speed, self.max_speed))
 
         # Update the odometer
-        self.odometer += self.speed
+        self._odometer += self.speed
 
     def is_position_on_track(self, x, y, track_mask):
         # Check if the position is within the bounds of the track mask
@@ -79,13 +84,18 @@ class Car:
         return False
 
     def accelerate(self):
-        self.speed += self.acceleration
+        self.longitudinal_recording.append(0)
+        self.speed = min(self.speed+self.acceleration, self.max_speed)
+        self.speed_recording.append(self.speed)
 
     def brake(self):
-        if self.speed > 0:
-            self.speed -= self.acceleration
-        else:
-            self.speed -= self.deceleration
+        self.longitudinal_recording.append(2)
+        self.speed = max(self.speed-self.deceleration, self.min_speed)        
+        self.speed_recording.append(self.speed)
+
+    def no_pedals(self):
+        self.longitudinal_recording.append(1)
+        self.speed_recording.append(self.speed)
 
     def steer_left(self):
         self.angle -= self.rotation_speed
@@ -136,11 +146,12 @@ class Car:
                 break
         return distance
     
-    def get_model_output(self, mymodel: MLP, resolution: int):
+    def get_model_output(self, mymodel: MLP, resolution: int, add_speed=True):
         # Get the radar readings
         readings = self.get_radar_readings(self.track_mask, resolution=resolution, save=True)
         readings = torch.tensor(readings).float()
         readings = readings.unsqueeze(0)
+        if add_speed: readings = torch.cat([readings, torch.tensor([self.speed]).unsqueeze(0)], axis=-1)
 
         # Get the model output
         output = mymodel(readings)
@@ -157,9 +168,31 @@ class Car:
             pygame.draw.line(surface, (255, 0, 0), (self.x - offset_x, self.y - offset_y), (end_x, end_y), 1)
 
     @property
+    def odometer(self):
+        return self._odometer
+        starting_point = (120, 120)
+        return np.sqrt((self.x - starting_point[0])**2 + (self.y - starting_point[1])**2)
+
+    @property
     def steering_tensor(self):
         return torch.nn.functional.one_hot(torch.tensor(self.steer_recording).long(), 3).float()
     
     @property
+    def longitudinal_tensor(self):
+        return torch.nn.functional.one_hot(torch.tensor(self.longitudinal_recording).long(), 3).float()
+
+    @property
+    def action_tensor(self):
+        return torch.cat([self.steering_tensor, self.longitudinal_tensor], axis=-1)
+    
+    @property
+    def speed_tensor(self):
+        return torch.tensor(self.speed_recording).float()
+
+    @property
     def radar_tensor(self):
         return torch.tensor(self.radar_recording).float()
+    
+    @property
+    def environment_tensor(self):
+        return torch.cat([self.radar_tensor, self.speed_tensor.unsqueeze(-1)], axis=-1)

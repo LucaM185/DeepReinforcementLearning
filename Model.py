@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [25, 3, 128, 3]
+    setup = [26, 6, 256, 4]
     
-    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.001):
+    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.003):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
@@ -17,7 +17,7 @@ class MLP(nn.Module):
         x = F.gelu(self.fc1(inputs))
         for hidden in self.fcx: # iterating over hidden layers
             x = self.lnorm(F.gelu(hidden(x)))  # applying each hidden layer
-        return torch.softmax(self.fc2(x), axis=-1)
+        return torch.softmax(self.fc2(x).view(-1, 2, 3), axis=-1).view(-1, 6)
 
     def get_model_copy(self):
         state = self.state_dict()
@@ -35,14 +35,18 @@ class MLP(nn.Module):
         # context = 1000
         # buttons = buttons[crashed_timestamp-context:crashed_timestamp]
         # radar = radar[crashed_timestamp-context:crashed_timestamp]
+        thresh = 2.5
+        buttons[:-past_interaction][radar[:-past_interaction][:, -1] < thresh] = 1-buttons[:-past_interaction][radar[:-past_interaction][:, -1] < thresh]
         buttons[-past_interaction:] = 1-buttons[-past_interaction:]
-        buttons = buttons[-past_interaction-250:]
-        radar = radar[-past_interaction-250:]
+        if buttons.shape[0] < 4000:
+            buttons = buttons[-past_interaction-250:]
+            radar = radar[-past_interaction-250:]
 
         # print(buttons)
 
         # train model   
         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.8)
+        # optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         from tqdm import tqdm
         for epoch in (range(10)):
             optimizer.zero_grad()
