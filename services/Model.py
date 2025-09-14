@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MLP(nn.Module):
-    setup = [26, 6, 256, 4]
+    setup = [26, 6, 128, 2]
     
     def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.003):
         super().__init__()
@@ -30,6 +30,16 @@ class MLP(nn.Module):
 
         buttons = actions
         radar = enviroment
+
+        # Align lengths in case recordings differ (e.g., steering stops when crashed)
+        with torch.no_grad():
+            len_env = radar.shape[0] if radar.ndim > 0 else 0
+            len_act = buttons.shape[0] if buttons.ndim > 0 else 0
+            min_len = min(len_env, len_act)
+            if min_len <= 0:
+                return self.get_model_copy()
+            radar = radar[:min_len]
+            buttons = buttons[:min_len]
 
         # crashed_timestamp = radar.argmin(-1) if (radar[radar.argmin(-1)].sum() == 0) else -1 
         # context = 1000
