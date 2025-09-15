@@ -3,8 +3,8 @@ import torch
 
 from services.Track import * 
 from services.Car import Car
-from services.Model import MLP
-from services.Dataset import MyDataset
+from services.Model import ActorCritic, PPOTrainer
+from services.Dataset import RolloutBuffer
 
 torch.manual_seed(42)
 
@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 
 resolution = 24
 
-n_cars = 30
+n_cars = 10
 def analyze_track_complexity(mask):
     # crude metric: average radar span from center across many angles
     # higher value -> more open (straights); lower -> more twisty
@@ -60,12 +60,7 @@ track_complexity = analyze_track_complexity(track_mask)
 # Create cars with adaptive radar and dynamics based on track_complexity
 cars = []
 for i in range(n_cars):
-    model = MLP(*MLP.setup, lr=0.003)
-    # Slightly perturb initial weights so each car starts differently
-    with torch.no_grad():
-        for p in model.parameters():
-            p.add_(torch.randn_like(p) * 0.01)
-    car = Car(starting_point[0], + starting_point[1], 60, 30, model=model, track_mask=track_mask)
+    car = Car(starting_point[0], + starting_point[1], 60, 30, model=None, track_mask=track_mask)
     # Track complexity 0 -> twisty, 1 -> open straights
     openness = track_complexity
     # Adapt radar: twisty -> wider angle, higher resolution; straight -> narrow angle, longer range
@@ -77,7 +72,6 @@ for i in range(n_cars):
     car.deceleration = 0.2 + (1-openness)*0.3
     car.rotation_speed = 1.2 - openness*0.6
     cars.append(car)
-dataset = MyDataset()
 
 lastx, lasty = 0, 0
 
@@ -85,132 +79,101 @@ display_radar = True
 display = True
 running = True
 manual_control = False
+with torch.no_grad():
+    obs_dim = int(cars[0].get_observation(resolution).shape[0])
+actor_critic = ActorCritic(obs_dim, hidden_size=128, n_layers=2)
+trainer = PPOTrainer(actor_critic, lr=1e-3, gamma=0.99, gae_lambda=0.95, clip_coef=0.3, update_epochs=6, minibatch_size=128, entropy_coef=0.02)
 
-backupmodel = cars[0].model
-backupodometer = 0
+ROLLOUT_STEPS = 256
+MAX_UPDATES = 10000
 
-# Game loop
-# Increased limits: outer loop (episodes) and inner loop (steps per episode)
-MAX_EPISODES = 10000
-STEPS_PER_EPISODE_BASE = 5000
-
-for j in range(MAX_EPISODES):
-    for i in range(STEPS_PER_EPISODE_BASE + j * 500):
+for update_idx in range(MAX_UPDATES):
+    buffer = RolloutBuffer(ROLLOUT_STEPS, n_cars, obs_dim)
+    with torch.no_grad():
+        obs = torch.stack([car.get_observation(resolution) for car in cars], dim=0)
+    all_dead = False
+    for t in range(ROLLOUT_STEPS):
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
         keys = pygame.key.get_pressed()
-
         screen.fill(WHITE)
         screen.blit(track_image, (-lastx, -lasty))
-        
-        outputs = [car.get_model_output(car.model, resolution) for car in cars]
-            
-        for n, (car, output) in enumerate(zip(cars, outputs)):
-            lateral, longitudinal = output[:3], output[3:] 
-
-            if manual_control and n == n_cars-1:
-                if keys[pygame.K_LEFT]:
-                    car.steer_left()
-                elif keys[pygame.K_RIGHT]:
-                    car.steer_right()
-                else:
-                    car.go_straight()
-                if keys[pygame.K_UP]:
-                    car.accelerate()
-                elif keys[pygame.K_DOWN]:
-                    car.brake()
+        with torch.no_grad():
+            actions, logprobs, entropy, values = actor_critic.get_action_and_value(obs)
+        # Step environments
+        for i, car in enumerate(cars):
+            lat = int(actions[i, 0].item())
+            lon = int(actions[i, 1].item())
+            if lat == 0:
+                car.steer_left()
+            elif lat == 2:
+                car.steer_right()
             else:
-                if lateral.argmax(axis=-1).item() == 0:
-                    car.steer_left()
-                elif lateral.argmax(axis=-1).item() == 2:
-                    car.steer_right()
-                else:
-                    car.go_straight()
-                
-                if longitudinal.argmax(axis=-1).item() == 0:
-                    car.accelerate()
-                elif longitudinal.argmax(axis=-1).item() == 2:
-                    car.brake()
-                else:
-                    car.no_pedals()
-                
+                car.go_straight()
+            if lon == 0:
+                car.accelerate()
+            elif lon == 2:
+                car.brake()
+            else:
+                car.no_pedals()
             car.update(track_mask)
-
-            if not car.crashed:
-                offset_x = car.x - SCREEN_WIDTH // 2
-                offset_y = car.y - SCREEN_HEIGHT // 2
-                output_backup = output
-
-            if display: car.draw(screen, lastx, lasty)
-            if display_radar: car.visualize(track_mask, screen, lastx, lasty, resolution=resolution)
-
-            # radar = car.get_radar_readings(track_mask, angle_range=45, resolution=resolution)
-            # speed = car.speed
-            speed = car.speed
-
-        # Focus camera and HUD on the alive car with the highest distance driven
+        # Compute rewards and dones (encourage distance progress, penalize crash)
+        rewards = torch.zeros(n_cars, dtype=torch.float32)
+        dones = torch.zeros(n_cars, dtype=torch.float32)
+        for i, car in enumerate(cars):
+            if car.crashed:
+                rewards[i] = -10.0
+                dones[i] = 1.0
+            else:
+                # Reward forward motion via speed; small living bonus
+                rewards[i] = float(car.speed) * 0.2 + 0.05
+        # Draw
+        if display:
+            for car in cars:
+                car.draw(screen, lastx, lasty)
+        if display_radar:
+            for car in cars:
+                car.visualize(track_mask, screen, lastx, lasty, resolution=resolution)
+        # Focus camera on best alive
         alive_indices = [i for i, c in enumerate(cars) if not c.crashed]
         target_indices = alive_indices if alive_indices else list(range(len(cars)))
         best_idx = max(target_indices, key=lambda k: cars[k].odometer)
         focused_car = cars[best_idx]
         offset_x = focused_car.x - SCREEN_WIDTH // 2
         offset_y = focused_car.y - SCREEN_HEIGHT // 2
-        output_backup = outputs[best_idx]
-        speed = focused_car.speed
-
+        lastx, lasty = offset_x, offset_y
         if display:
             font = pygame.font.Font(None, 36)
-            choicelateral = output_backup[:3].argmax(axis=-1).item()
-            choicelongitudinal = output_backup[3:].argmax(axis=-1).item()
-            mystring = f"Lat: {choicelateral} @ {output_backup[choicelateral]:.2f} \nLong {choicelongitudinal} @ {output_backup[choicelongitudinal+3]:.2f} \nSpd: {speed:.2f}"
+            mystring = f"Lat: {int(actions[best_idx,0].item())}\nLong: {int(actions[best_idx,1].item())}\nSpd: {focused_car.speed:.2f}"
             for n, line in enumerate(mystring.split("\n")):
                 text = font.render(line, True, (0, 255, 0))
                 screen.blit(text, (10, 10 + n*36))
-
-        lastx, lasty = offset_x, offset_y
         pygame.display.flip()
         clock.tick(2000)
-    
-        if keys[pygame.K_q]:
+        # Store
+        buffer.add(obs, actions, logprobs, rewards, dones, values)
+        # Check if all dead; if so, stop collecting and do update
+        if int(dones.sum().item()) == n_cars:
+            all_dead = True
+            break
+        with torch.no_grad():
+            obs = torch.stack([car.get_observation(resolution) for car in cars], dim=0)
+        if keys[pygame.K_q] or not running:
             running = False
             break
-        
-        if [car.crashed for car in cars].count(True) == n_cars:
-            break
-
-    bestOdometer = -10
-    for n, car in enumerate(cars):
-        if car.odometer > bestOdometer:
-            bestOdometer = car.odometer
-            bestmodel = car.model
-            bestn = n
-
-    if bestOdometer > backupodometer:
-        backupmodel = cars[bestn].model.get_model_copy()
-        backupodometer = bestOdometer
-        print(f"Backup model updated, odo {bestOdometer:.2f}, lr {backupmodel.lr:.6f}")
-    else:
-        print(f"{cars[bestn].odometer:2f}")
-
-    # Gradient step on best run, then distribute gradient-updated copies with varying LRs
-    base_model = backupmodel.get_model_copy()
-    best_car = cars[bestn]
-    if best_car.environment_tensor.shape[0] > 0 and best_car.action_tensor.shape[0] > 0:
-        base_model = base_model.train(best_car.environment_tensor, best_car.action_tensor, 240)
-
-    for i, car in enumerate(cars):
-        newmodel = base_model.get_model_copy()
-        # Assign different learning rates across the fleet (low -> high)
-        span = max(1, n_cars - 1)
-        frac = i / span
-        lr_scale = 0.2 + 0.8 * frac  # [0.2x .. 1.0x]
-        newmodel.lr = base_model.lr * lr_scale
-        if best_car.environment_tensor.shape[0] > 0 and best_car.action_tensor.shape[0] > 0:
-            newmodel = newmodel.train(best_car.environment_tensor, best_car.action_tensor, 240)
-        car.model = newmodel
-    for car in cars: car.reset_position()
-    if running == False: break
-
+    if not running:
+        break
+    with torch.no_grad():
+        if all_dead:
+            last_values = torch.zeros(n_cars, dtype=torch.float32)
+        else:
+            _, _, last_values = actor_critic.forward(obs)
+    buffer.compute_gae(last_values, gamma=trainer.gamma, gae_lambda=trainer.gae_lambda)
+    stats = trainer.update(buffer)
+    print(f"Update {update_idx} | Policy {stats['policy_loss']:.4f} | Value {stats['value_loss']:.4f} | Ent {stats['entropy']:.4f}")
+    # Reset all cars after each update
+    for car in cars:
+        car.reset_position()
 pygame.quit()

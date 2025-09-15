@@ -178,6 +178,15 @@ class Car:
 
         return output
 
+    def get_observation(self, resolution: int):
+        readings = self.get_radar_readings(self.track_mask, resolution=resolution, save=True)
+        # Normalize distances (roughly) and speed
+        max_dist = 500.0
+        readings_norm = [min(max(r, 0.0), max_dist) / max_dist for r in readings]
+        speed_norm = float(self.speed) / max(1.0, float(self.max_speed))
+        obs = torch.tensor(readings_norm + [speed_norm], dtype=torch.float32)
+        return obs
+
     def visualize(self, track_mask, surface, offset_x, offset_y, angle_range=80, resolution=8):
         readings = self.get_radar_readings(track_mask, angle_range, resolution)
         for i, reading in enumerate(readings):
