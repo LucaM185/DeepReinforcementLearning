@@ -20,8 +20,8 @@ SHOW_FPS = int(os.environ.get("SHOW_FPS", "60"))
 
 pygame.init()
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = int(800 * 1.75)
+SCREEN_HEIGHT = int(600 * 1.75)
 WHITE = (0, 0, 0)
 RED = (255, 0, 0)
 # Exposed RL and sim parameters
