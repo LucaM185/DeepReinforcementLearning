@@ -1,19 +1,22 @@
 import pygame
-import sys
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+# Exposed drawing and scaling parameters
+TRACK_BASE_WIDTH = 800
+TRACK_BASE_HEIGHT = 600
+GET_MASK_SCALE_MULTIPLIER = 2
+SCALE_FACTOR = 4
+BRUSH_THICKNESS = 10
+OUTPUT_PATH = "track.png"
+DRAW_WINDOW_NAME = "Track"
 
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
-
-def get_track_mask(name=r"C:\Users\lucam\Desktop\VScode\Cars\monza.png"):
-    # Initialize Pygame
-    pygame.init()
-
+def get_track_mask(name=r"monza.png", scale_multiplier: int = GET_MASK_SCALE_MULTIPLIER):
     # Load and scale the track image
     track_image = pygame.image.load(name).convert_alpha()
-    track_image = pygame.transform.scale(track_image, (track_image.get_width() * 2, track_image.get_height() * 2))
+    track_image = pygame.transform.scale(
+        track_image,
+        (track_image.get_width() * scale_multiplier, track_image.get_height() * scale_multiplier),
+    )
 
     # Invert black and white in the image
     track_array = pygame.surfarray.pixels3d(track_image)
@@ -26,7 +29,7 @@ def get_track_mask(name=r"C:\Users\lucam\Desktop\VScode\Cars\monza.png"):
 import numpy as np
 import cv2
 
-image = np.zeros((600, 800), np.uint8)
+image = np.zeros((TRACK_BASE_HEIGHT, TRACK_BASE_WIDTH), np.uint8)
 prev = (400, 300)
 mousedown = False
 starting_point = None
@@ -38,7 +41,7 @@ def draw(event, x, y, flags, param):
     global starting_point
 
     if starting_point is None:
-        cv2.circle(image, prev, 10, (0, 0, 0, 0), -1)
+        cv2.circle(image, prev, BRUSH_THICKNESS, (0, 0, 0, 0), -1)
 
     if event == cv2.EVENT_LBUTTONDOWN:
         if prev == None:
@@ -49,7 +52,7 @@ def draw(event, x, y, flags, param):
 
 
     if mousedown:
-        cv2.line(image, prev, (x, y), (0, 0, 0, 0), 10)
+        cv2.line(image, prev, (x, y), (0, 0, 0, 0), BRUSH_THICKNESS)
         prev = (x, y)
 
     if event == cv2.EVENT_LBUTTONUP:
@@ -58,21 +61,21 @@ def draw(event, x, y, flags, param):
 
 def make_new_track():
     global image
-    image = np.zeros((600, 800, 4), np.uint8) + 255
+    image = np.zeros((TRACK_BASE_HEIGHT, TRACK_BASE_WIDTH, 4), np.uint8) + 255
     while True:
-        cv2.imshow("Track", image)
+        cv2.imshow(DRAW_WINDOW_NAME, image)
         # mouse callback
-        cv2.setMouseCallback("Track", draw)
+        cv2.setMouseCallback(DRAW_WINDOW_NAME, draw)
         k = cv2.waitKey(10)
     
         if k == 27:
             break
     
-    image = cv2.resize(image, (800*4, 600*4))
+    image = cv2.resize(image, (TRACK_BASE_WIDTH*SCALE_FACTOR, TRACK_BASE_HEIGHT*SCALE_FACTOR))
     image[:,:,3] = 255-image[:,:,3]
-    cv2.imwrite("track.png", image)
+    cv2.imwrite(OUTPUT_PATH, image)
     cv2.destroyAllWindows()
 
-    return *get_track_mask("track.png"), starting_point 
+    return *get_track_mask(OUTPUT_PATH), starting_point 
 
     

@@ -2,83 +2,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class MLP(nn.Module):
-    setup = [26, 6, 128, 2]
-    
-    def __init__(self, in_size, out_size, hidden_size, n_layers, lr=0.003):
-        super().__init__()
-        self.fc1 = nn.Linear(in_size, hidden_size)
-        self.fcx = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)]) # this is a list of linear layers
-        self.fc2 = nn.Linear(hidden_size, out_size)
-        self.lnorm = nn.LayerNorm(hidden_size)
-        self.lr = lr
-    
-    def forward(self, inputs):
-        x = F.gelu(self.fc1(inputs))
-        for hidden in self.fcx: # iterating over hidden layers
-            x = self.lnorm(F.gelu(hidden(x)))  # applying each hidden layer
-        return torch.softmax(self.fc2(x).view(-1, 2, 3), axis=-1).view(-1, 6)
-
-    def get_model_copy(self):
-        state = self.state_dict()
-        newmodel = MLP(*MLP.setup, self.lr*0.8)
-        newmodel.load_state_dict(state)
-        return newmodel
-
-    def train(self, enviroment, actions, past_interaction=50): 
-        past_interaction *= 1
-
-        buttons = actions
-        radar = enviroment
-
-        # Align lengths in case recordings differ (e.g., steering stops when crashed)
-        with torch.no_grad():
-            len_env = radar.shape[0] if radar.ndim > 0 else 0
-            len_act = buttons.shape[0] if buttons.ndim > 0 else 0
-            min_len = min(len_env, len_act)
-            if min_len <= 0:
-                return self.get_model_copy()
-            radar = radar[:min_len]
-            buttons = buttons[:min_len]
-
-        # crashed_timestamp = radar.argmin(-1) if (radar[radar.argmin(-1)].sum() == 0) else -1 
-        # context = 1000
-        # buttons = buttons[crashed_timestamp-context:crashed_timestamp]
-        # radar = radar[crashed_timestamp-context:crashed_timestamp]
-        thresh = 2.5
-        buttons[:-past_interaction][radar[:-past_interaction][:, -1] < thresh] = 1-buttons[:-past_interaction][radar[:-past_interaction][:, -1] < thresh]
-        buttons[-past_interaction:] = 1-buttons[-past_interaction:]
-        if buttons.shape[0] < 4000:
-            buttons = buttons[-past_interaction-250:]
-            radar = radar[-past_interaction-250:]
-
-        # print(buttons)
-
-        # train model   
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=0.8)
-        # optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        from tqdm import tqdm
-        for epoch in (range(10)):
-            optimizer.zero_grad()
-
-            output = self(radar)
-            loss = F.mse_loss(output, buttons)
-            loss.backward()
-            optimizer.step()
-            # p.set_description(f"Loss: {loss.item():2f} at epoch {epoch:2d}")
-        
-        state = self.state_dict()
-        newmodel = MLP(*MLP.setup, self.lr)
-        newmodel.load_state_dict(state)
-        return newmodel
-
+# Exposed defaults for easy tuning
+ACTOR_DEFAULT_HIDDEN_SIZE = 128
+ACTOR_DEFAULT_N_LAYERS = 2
+PPO_LR = 3e-4
+PPO_GAMMA = 0.99
+PPO_GAE_LAMBDA = 0.95
+PPO_CLIP_COEF = 0.2
+PPO_UPDATE_EPOCHS = 4
+PPO_MINIBATCH_SIZE = 256
+PPO_ENTROPY_COEF = 0.01
+PPO_VALUE_COEF = 0.5
+PPO_MAX_GRAD_NORM = 0.5
 
 # ==========================
 # PPO: Actor-Critic + Trainer
 # ==========================
 
 class ActorCritic(nn.Module):
-    def __init__(self, in_size: int, hidden_size: int = 128, n_layers: int = 2):
+    def __init__(self, in_size: int, hidden_size: int = ACTOR_DEFAULT_HIDDEN_SIZE, n_layers: int = ACTOR_DEFAULT_N_LAYERS):
         super().__init__()
         self.fc1 = nn.Linear(in_size, hidden_size)
         self.hidden_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(n_layers)])
@@ -102,8 +44,14 @@ class ActorCritic(nn.Module):
         value = self.critic(x).squeeze(-1)
         return logits_lat, logits_long, value
 
-    def get_action_and_value(self, obs: torch.Tensor, actions: torch.Tensor = None):
+    def get_action_and_value(self, obs: torch.Tensor, actions: torch.Tensor = None, lateral_logits_bias: torch.Tensor = None):
         logits_lat, logits_long, value = self.forward(obs)
+        # Optional exploration bias on lateral logits (shape [3] or [batch,3])
+        if lateral_logits_bias is not None:
+            if lateral_logits_bias.dim() == 1:
+                logits_lat = logits_lat + lateral_logits_bias.view(1, -1)
+            else:
+                logits_lat = logits_lat + lateral_logits_bias
         dist_lat = torch.distributions.Categorical(logits=logits_lat)
         dist_long = torch.distributions.Categorical(logits=logits_long)
         if actions is None:
@@ -122,15 +70,15 @@ class PPOTrainer:
     def __init__(
         self,
         model: ActorCritic,
-        lr: float = 3e-4,
-        gamma: float = 0.99,
-        gae_lambda: float = 0.95,
-        clip_coef: float = 0.2,
-        update_epochs: int = 4,
-        minibatch_size: int = 256,
-        entropy_coef: float = 0.01,
-        value_coef: float = 0.5,
-        max_grad_norm: float = 0.5,
+        lr: float = PPO_LR,
+        gamma: float = PPO_GAMMA,
+        gae_lambda: float = PPO_GAE_LAMBDA,
+        clip_coef: float = PPO_CLIP_COEF,
+        update_epochs: int = PPO_UPDATE_EPOCHS,
+        minibatch_size: int = PPO_MINIBATCH_SIZE,
+        entropy_coef: float = PPO_ENTROPY_COEF,
+        value_coef: float = PPO_VALUE_COEF,
+        max_grad_norm: float = PPO_MAX_GRAD_NORM,
     ):
         self.model = model
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)

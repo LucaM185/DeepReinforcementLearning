@@ -1,11 +1,19 @@
 import numpy as np
 import pygame
 import math
-import os
 import torch
-import sys
-from services.Model import MLP
 
+
+# Tunable defaults (easy to tweak)
+DEFAULT_CAR_SPEED = 2
+DEFAULT_MAX_SPEED = 6
+DEFAULT_MIN_SPEED = 1
+DEFAULT_ACCELERATION = 0.4
+DEFAULT_DECELERATION = 0.2
+DEFAULT_ROTATION_SPEED = 1.0
+DEFAULT_RADAR_ANGLE_RANGE = 85
+DEFAULT_RADAR_RESOLUTION = 16
+DEFAULT_MAX_RADAR_DISTANCE = 500.0  # for observation normalization
 
 # Colors
 WHITE = (255, 255, 255)
@@ -24,15 +32,15 @@ class Car:
         self.y = y
         self.angle = 0
         # Defaults tuned for general tracks; will be adapted per-track below
-        self.speed = 2
-        self.max_speed = 6
-        self.min_speed = 1
-        self.acceleration = 0.4
-        self.deceleration = 0.2
-        self.rotation_speed = 1.0
+        self.speed = DEFAULT_CAR_SPEED
+        self.max_speed = DEFAULT_MAX_SPEED
+        self.min_speed = DEFAULT_MIN_SPEED
+        self.acceleration = DEFAULT_ACCELERATION
+        self.deceleration = DEFAULT_DECELERATION
+        self.rotation_speed = DEFAULT_ROTATION_SPEED
         # Adaptive parameters (set by `adapt_to_track`)
-        self.radar_angle_range = 45
-        self.radar_resolution = 8
+        self.radar_angle_range = DEFAULT_RADAR_ANGLE_RANGE
+        self.radar_resolution = DEFAULT_RADAR_RESOLUTION
         self._odometer = 0
         self.radar_recording = []
         self.speed_recording = []
@@ -45,7 +53,7 @@ class Car:
         self.x = self.original_x
         self.y = self.original_y
         self.angle = 0
-        self.speed = 2
+        self.speed = DEFAULT_CAR_SPEED
         self._odometer = 0
         self.crashed = False
         self.radar_recording = []
@@ -133,10 +141,10 @@ class Car:
         rect = rotated_car.get_rect(center=(self.x - offset_x, self.y - offset_y))
         surface.blit(rotated_car, rect.topleft)
 
-    def get_radar_readings(self, track_mask, angle_range=45, resolution=8, save=False):
+    def get_radar_readings(self, track_mask, angle_range=None, resolution=None, save=False):
         # Use adaptive defaults if caller didn't pass specific values
-        angle_range = angle_range or self.radar_angle_range
-        resolution = resolution or self.radar_resolution
+        angle_range = self.radar_angle_range if angle_range is None else angle_range
+        resolution = self.radar_resolution if resolution is None else resolution
         readings = []
         if self.crashed:
             return [0] * (resolution+1)
@@ -165,29 +173,16 @@ class Car:
                 break
         return distance
     
-    def get_model_output(self, mymodel: MLP, resolution: int, add_speed=True):
-        # Get the radar readings
-        readings = self.get_radar_readings(self.track_mask, resolution=resolution, save=True)
-        readings = torch.tensor(readings).float()
-        readings = readings.unsqueeze(0)
-        if add_speed: readings = torch.cat([readings, torch.tensor([self.speed]).unsqueeze(0)], axis=-1)
-
-        # Get the model output
-        output = mymodel(readings)
-        output = output.squeeze(0).detach()
-
-        return output
-
     def get_observation(self, resolution: int):
         readings = self.get_radar_readings(self.track_mask, resolution=resolution, save=True)
         # Normalize distances (roughly) and speed
-        max_dist = 500.0
+        max_dist = DEFAULT_MAX_RADAR_DISTANCE
         readings_norm = [min(max(r, 0.0), max_dist) / max_dist for r in readings]
         speed_norm = float(self.speed) / max(1.0, float(self.max_speed))
         obs = torch.tensor(readings_norm + [speed_norm], dtype=torch.float32)
         return obs
 
-    def visualize(self, track_mask, surface, offset_x, offset_y, angle_range=80, resolution=8):
+    def visualize(self, track_mask, surface, offset_x, offset_y, angle_range=120, resolution=16):
         readings = self.get_radar_readings(track_mask, angle_range, resolution)
         for i, reading in enumerate(readings):
             angle = self.angle + i / resolution * angle_range * 2 - angle_range
@@ -198,41 +193,3 @@ class Car:
     @property
     def odometer(self):
         return self._odometer
-        starting_point = (120, 120)
-        return np.sqrt((self.x - starting_point[0])**2 + (self.y - starting_point[1])**2)
-
-    @property
-    def steering_tensor(self):
-        return torch.nn.functional.one_hot(torch.tensor(self.steer_recording).long(), 3).float()
-    
-    @property
-    def longitudinal_tensor(self):
-        return torch.nn.functional.one_hot(torch.tensor(self.longitudinal_recording).long(), 3).float()
-
-    @property
-    def action_tensor(self):
-        steering = self.steering_tensor
-        longitudinal = self.longitudinal_tensor
-        # Align lengths to avoid mismatch when one stops updating (e.g., after crash)
-        min_len = min(steering.shape[0], longitudinal.shape[0]) if steering.ndim > 0 and longitudinal.ndim > 0 else 0
-        if min_len == 0:
-            return torch.zeros((0, 6)).float()
-        return torch.cat([steering[:min_len], longitudinal[:min_len]], axis=-1)
-    
-    @property
-    def speed_tensor(self):
-        return torch.tensor(self.speed_recording).float()
-
-    @property
-    def radar_tensor(self):
-        return torch.tensor(self.radar_recording).float()
-    
-    @property
-    def environment_tensor(self):
-        radar = self.radar_tensor
-        speed = self.speed_tensor
-        # Ensure same timesteps length
-        min_len = min(radar.shape[0], speed.shape[0]) if radar.ndim > 0 and speed.ndim > 0 else 0
-        if min_len == 0:
-            return torch.zeros((0, radar.shape[1] + 1 if radar.ndim == 2 else 1)).float()
-        return torch.cat([radar[:min_len], speed[:min_len].unsqueeze(-1)], axis=-1)
